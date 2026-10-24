@@ -12,7 +12,8 @@ import {
   Shield, 
   RefreshCw, 
   MessageSquare,
-  ArrowLeft
+  ArrowLeft,
+  Info
 } from 'lucide-react';
 import { 
   adminObtenerEvento, 
@@ -75,7 +76,17 @@ export function EventoInvitaciones() {
       ]);
       setEvento(ev);
       setInvitados(invs);
-      setAccesoOrganizador(acc);
+      if (acc) {
+        setAccesoOrganizador(acc);
+        if (acc.token_plano) setTokenOrganizadorSesion(acc.token_plano);
+      } else if (ev) {
+        // Generar enlace organizador automáticamente para pruebas del admin
+        const tokenPlano = generarTokenSeguro();
+        const tokenHash = await calcularSha256(tokenPlano);
+        const nuevoAcc = await adminCrearAccesoOrganizador(eventoId, tokenHash, ev.fecha_caducidad_panel, tokenPlano);
+        setAccesoOrganizador(nuevoAcc);
+        setTokenOrganizadorSesion(tokenPlano);
+      }
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : 'Error al cargar datos');
     } finally {
@@ -100,6 +111,7 @@ export function EventoInvitaciones() {
         telefono: telefono.trim() || null,
         token_hash: tokenHash,
         max_acompanantes_permitidos: maxAcompanantes,
+        token_plano: tokenPlano,
       });
 
       // Guardar token plano en mapa temporal de sesión para poder copiar el enlace
@@ -141,6 +153,7 @@ export function EventoInvitaciones() {
           telefono: item.telefono || null,
           token_hash: tokenHash,
           max_acompanantes_permitidos: item.max_acompanantes,
+          token_plano: tokenPlano,
         });
 
         nuevosTokens[inv.id] = tokenPlano;
@@ -177,7 +190,7 @@ export function EventoInvitaciones() {
       const tokenHash = await calcularSha256(tokenPlano);
       const expiraAt = evento.fecha_caducidad_panel; // 30 días tras el evento
 
-      const acc = await adminCrearAccesoOrganizador(eventoId, tokenHash, expiraAt);
+      const acc = await adminCrearAccesoOrganizador(eventoId, tokenHash, expiraAt, tokenPlano);
       setAccesoOrganizador(acc);
       setTokenOrganizadorSesion(tokenPlano);
       alert('Se ha generado un nuevo enlace privado para el organizador. Cópialo y compártelo.');
@@ -255,7 +268,19 @@ export function EventoInvitaciones() {
             </h1>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {enlaceOrgCompleto && (
+              <a
+                href={enlaceOrgCompleto}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white text-xs font-semibold shadow-xs transition-colors"
+              >
+                <Shield className="w-3.5 h-3.5" />
+                Ver como Organizador
+              </a>
+            )}
+
             <button
               onClick={() => setMostrarModalCSV(true)}
               className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold transition-colors"
@@ -274,6 +299,21 @@ export function EventoInvitaciones() {
           </div>
         </div>
       </div>
+
+      {/* Aviso informativo de red local Wi-Fi para pruebas en celular */}
+      {typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') && (
+        <div className="p-4 bg-amber-50 rounded-3xl border border-amber-200/80 text-xs text-amber-950 flex items-start gap-3 shadow-xs">
+          <Info className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <p className="font-bold text-amber-900">
+              💡 ¿Cómo probar los enlaces de invitación desde tu celular en la misma red Wi-Fi?
+            </p>
+            <p className="text-stone-600 leading-relaxed text-[11px]">
+              Actualmente tienes abierto el panel con <strong className="font-mono text-amber-800">localhost:5173</strong>. Para que los enlaces que copies o envíes a WhatsApp puedan abrirse desde tu teléfono u otro dispositivo conectado a tu Wi-Fi, abre la plataforma en tu navegador usando la IP de tu computador (por ejemplo: <code className="bg-amber-100/70 px-1.5 py-0.5 rounded font-mono font-bold text-amber-900">http://192.168.1.XX:5173/admin/eventos</code>). De esa forma, todos los enlaces generados usarán esa dirección accesible para tu móvil.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* BLOQUE ENLACE PRIVADO DEL ORGANIZADOR (Sección 4.3 y 9) */}
       <div className="bg-white rounded-3xl p-6 border border-stone-200 shadow-xs space-y-4">
@@ -368,13 +408,14 @@ export function EventoInvitaciones() {
 
           <div>
             <label className="block text-xs font-semibold text-stone-600 uppercase tracking-wider mb-1">
-              Teléfono Celular (WhatsApp)
+              Teléfono Celular (10 dígitos)
             </label>
             <input
               type="tel"
+              maxLength={10}
               placeholder="0991234567"
               value={telefono}
-              onChange={(e) => setTelefono(e.target.value)}
+              onChange={(e) => setTelefono(e.target.value.replace(/\D/g, '').slice(0, 10))}
               className="w-full px-3 py-2 text-sm bg-stone-50 rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-amber-600"
             />
           </div>
@@ -388,7 +429,7 @@ export function EventoInvitaciones() {
               onChange={(e) => setMaxAcompanantes(parseInt(e.target.value, 10))}
               className="w-full px-3 py-2 text-sm bg-stone-50 rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-amber-600"
             >
-              {[0, 1, 2, 3, 4, 5].map((n) => (
+              {[0, 1, 2, 3, 4].map((n) => (
                 <option key={n} value={n}>
                   {n === 0 ? 'Sin acompañantes (1 persona)' : `+${n} acompañante${n > 1 ? 's' : ''}`}
                 </option>
@@ -396,7 +437,26 @@ export function EventoInvitaciones() {
             </select>
           </div>
 
-          <div className="sm:col-span-4 flex justify-end">
+          <div className="sm:col-span-4 flex flex-wrap justify-end gap-2.5 pt-2">
+            <button
+              type="button"
+              onClick={() => copiarAlPortapapeles(`${window.location.origin}/i/general-${evento.id}`, 'enlace_general')}
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 text-xs font-semibold transition-all border border-amber-200"
+            >
+              {copiadoId === 'enlace_general' ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4 text-amber-700" />}
+              {copiadoId === 'enlace_general' ? '¡Enlace General Copiado!' : 'Copiar Enlace General'}
+            </button>
+
+            <a
+              href={`${window.location.origin}/i/general-${evento.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-semibold transition-all border border-stone-200"
+            >
+              <ExternalLink className="w-3.5 h-3.5 text-stone-500" />
+              Ver Invitación General (Para todos)
+            </a>
+
             <button
               type="submit"
               disabled={guardando}
@@ -507,9 +567,10 @@ export function EventoInvitaciones() {
                               target="_blank"
                               rel="noopener noreferrer"
                               title="Abrir invitación como invitado"
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-900 font-medium transition-colors"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-medium transition-colors shadow-xs"
                             >
-                              <ExternalLink className="w-3.5 h-3.5 text-amber-700" />
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              <span className="hidden sm:inline">Ver Invitación</span>
                             </a>
                           </>
                         ) : (

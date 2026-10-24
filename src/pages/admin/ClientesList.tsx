@@ -171,13 +171,14 @@ export function ClientesList() {
 
               <div>
                 <label className="block text-xs font-semibold text-stone-700 uppercase tracking-wider mb-1">
-                  Teléfono / WhatsApp
+                  Teléfono / WhatsApp (10 dígitos)
                 </label>
                 <input
                   type="tel"
-                  placeholder="+593 99 123 4567"
+                  maxLength={10}
+                  placeholder="0991234567"
                   value={telefono}
-                  onChange={(e) => setTelefono(e.target.value)}
+                  onChange={(e) => setTelefono(e.target.value.replace(/\D/g, '').slice(0, 10))}
                   className="w-full px-3 py-2 text-sm bg-stone-50 rounded-xl border border-stone-300 focus:outline-none focus:ring-2 focus:ring-amber-600"
                 />
               </div>

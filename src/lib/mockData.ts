@@ -56,6 +56,7 @@ export const mockStore: MockStore = {
       indicaciones: 'Código de vestimenta Formal / Guayabera o Traje. Agradecemos su puntualidad.',
       configuracion_diseno: {
         tema: 'romantico_floral',
+        estilo_tarjeta: 'arco_moderno',
         color_primario: '#9f1239',
         color_secundario: '#fff1f2',
         color_acento: '#fb7185',
@@ -142,9 +143,154 @@ export const mockStore: MockStore = {
   ]
 };
 
+const STORAGE_KEY = 'plataforma_digital_mock_store_v1';
+
+export function guardarMockStore(): void {
+  if (typeof window !== 'undefined') {
+    const jsonStr = JSON.stringify(mockStore);
+    if (window.localStorage) {
+      try {
+        window.localStorage.setItem(STORAGE_KEY, jsonStr);
+      } catch {}
+    }
+    // Sincronizar hacia el servidor Vite local para que cualquier celular en la red Wi-Fi lo reciba
+    try {
+      fetch('/api/mock-store', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: jsonStr
+      }).catch(() => {});
+    } catch {}
+  }
+}
+
+export function sincronizarMockStore(): void {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      const guardado = window.localStorage.getItem(STORAGE_KEY);
+      if (guardado) {
+        const parsed = JSON.parse(guardado);
+        if (Array.isArray(parsed.clientes)) mockStore.clientes = parsed.clientes;
+        if (Array.isArray(parsed.eventos)) mockStore.eventos = parsed.eventos;
+        if (Array.isArray(parsed.invitados)) mockStore.invitados = parsed.invitados;
+        if (Array.isArray(parsed.accesos_cliente)) mockStore.accesos_cliente = parsed.accesos_cliente;
+        if (Array.isArray(parsed.historial_rsvp)) mockStore.historial_rsvp = parsed.historial_rsvp;
+        if (Array.isArray(parsed.logs_mantenimiento)) mockStore.logs_mantenimiento = parsed.logs_mantenimiento;
+      }
+    } catch {}
+  }
+}
+
+// Sincronización bidireccional con el servidor local para móviles
+export async function sincronizarMockStoreServidor(): Promise<void> {
+  if (typeof window === 'undefined') return;
+  try {
+    const res = await fetch('/api/mock-store');
+    if (res.ok) {
+      const parsed = await res.json();
+      const localRaw = window.localStorage ? window.localStorage.getItem(STORAGE_KEY) : null;
+      let localEventosCount = 0;
+      if (localRaw) {
+        try { localEventosCount = JSON.parse(localRaw).eventos?.length || 0; } catch {}
+      }
+
+      // Si el servidor tiene datos y no son menores que los de la PC local, los adoptamos
+      if (parsed && Array.isArray(parsed.eventos) && parsed.eventos.length >= localEventosCount && parsed.eventos.length > 0) {
+        if (Array.isArray(parsed.clientes)) mockStore.clientes = parsed.clientes;
+        if (Array.isArray(parsed.eventos)) mockStore.eventos = parsed.eventos;
+        if (Array.isArray(parsed.invitados)) mockStore.invitados = parsed.invitados;
+        if (Array.isArray(parsed.accesos_cliente)) mockStore.accesos_cliente = parsed.accesos_cliente;
+        if (Array.isArray(parsed.historial_rsvp)) mockStore.historial_rsvp = parsed.historial_rsvp;
+        if (Array.isArray(parsed.logs_mantenimiento)) mockStore.logs_mantenimiento = parsed.logs_mantenimiento;
+        if (window.localStorage) {
+          window.localStorage.setItem(STORAGE_KEY, JSON.stringify(mockStore));
+        }
+        return;
+      }
+    }
+  } catch {}
+
+  // Si la PC local tiene datos que el servidor no tiene aún, sincronizarlos al archivo del servidor
+  try {
+    const guardado = window.localStorage ? window.localStorage.getItem(STORAGE_KEY) : null;
+    if (guardado) {
+      await fetch('/api/mock-store', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: guardado
+      });
+    }
+  } catch {}
+}
+
+// Inicializar sincronización
+sincronizarMockStore();
+if (typeof window !== 'undefined') {
+  sincronizarMockStoreServidor();
+}
+
 // Funciones para mock de RPC
 export function mockObtenerInvitacion(tokenHash: string): InvitacionPublicaData {
-  const invitado = mockStore.invitados.find(i => i.token_hash === tokenHash && i.activo);
+  sincronizarMockStore();
+
+  // 1. Invitación General para todo el evento
+  if (tokenHash.startsWith('general-') || tokenHash.startsWith('gen-')) {
+    const eventoId = tokenHash.replace(/^general-|^gen-/, '');
+    const evento = mockStore.eventos.find(e => e.id === eventoId);
+    if (evento) {
+      if (estaInvitacionCaducada(evento.fecha_caducidad_invitaciones)) {
+        return { valido: false, caducado: true, mensaje: 'Este evento ha finalizado' };
+      }
+
+      // Verificar si este navegador/dispositivo ya registró asistencia en esta invitación general
+      let rsvpPrevio: { nombre?: string; estado?: 'confirmado' | 'rechazado'; acompanantes?: number; respondido_at?: string } | null = null;
+      if (typeof window !== 'undefined' && window.localStorage) {
+        try {
+          const raw = window.localStorage.getItem('rsvp_completado_' + tokenHash);
+          if (raw) rsvpPrevio = JSON.parse(raw);
+        } catch {}
+      }
+
+      return {
+        valido: true,
+        caducado: false,
+        rsvp_cerrado: estaRsvpCerrado(evento.fecha_limite_rsvp),
+        es_general: true,
+        invitado: {
+          id: 'general-' + evento.id,
+          nombre: rsvpPrevio?.nombre || 'Invitado(a) Especial',
+          estado_rsvp: rsvpPrevio?.estado || 'pendiente',
+          numero_acompanantes: rsvpPrevio?.acompanantes || 0,
+          max_acompanantes_permitidos: 4,
+          respondido_at: rsvpPrevio?.respondido_at || null,
+        },
+        evento: {
+          id: evento.id,
+          titulo: evento.titulo,
+          tipo: evento.tipo,
+          fecha_evento: evento.fecha_evento,
+          zona_horaria: evento.zona_horaria,
+          fecha_limite_rsvp: evento.fecha_limite_rsvp,
+          ubicacion_nombre: evento.ubicacion_nombre,
+          ubicacion_url: evento.ubicacion_url,
+          indicaciones: evento.indicaciones,
+          configuracion_diseno: evento.configuracion_diseno,
+          estado: evento.estado,
+        }
+      };
+    }
+  }
+
+  // 2. Invitación Individual con nombre específico
+  const esDemo = tokenHash.includes('demoinvitado') || tokenHash === 'mocktokeninvitado123456hash';
+  const invitado = mockStore.invitados.find(i => 
+    i.activo && (
+      i.token_hash === tokenHash || 
+      i.token_plano === tokenHash ||
+      (esDemo && i.token_plano === 'demoinvitado123456')
+    )
+  );
+
   if (!invitado) {
     return { valido: false, error: 'Invitación no válida o no encontrada' };
   }
@@ -165,13 +311,14 @@ export function mockObtenerInvitacion(tokenHash: string): InvitacionPublicaData 
   return {
     valido: true,
     caducado: false,
+    es_general: false,
     rsvp_cerrado: estaRsvpCerrado(evento.fecha_limite_rsvp),
     invitado: {
       id: invitado.id,
       nombre: invitado.nombre,
       estado_rsvp: invitado.estado_rsvp,
       numero_acompanantes: invitado.numero_acompanantes,
-      max_acompanantes_permitidos: invitado.max_acompanantes_permitidos,
+      max_acompanantes_permitidos: 4,
       respondido_at: invitado.respondido_at,
     },
     evento: {
@@ -190,9 +337,77 @@ export function mockObtenerInvitacion(tokenHash: string): InvitacionPublicaData 
   };
 }
 
-export function mockRegistrarRsvp(tokenHash: string, estado: 'confirmado' | 'rechazado', acompanantes: number) {
-  const invitado = mockStore.invitados.find(i => i.token_hash === tokenHash && i.activo);
+export function mockRegistrarRsvp(
+  tokenHash: string, 
+  estado: 'confirmado' | 'rechazado', 
+  acompanantes: number,
+  nombreOpcional?: string
+) {
+  sincronizarMockStore();
+
+  // Caso: Invitación General (crea el invitado en la lista de asistencia)
+  if (tokenHash.startsWith('general-') || tokenHash.startsWith('gen-')) {
+    const eventoId = tokenHash.replace(/^general-|^gen-/, '');
+    const evento = mockStore.eventos.find(e => e.id === eventoId);
+    if (!evento || estaInvitacionCaducada(evento.fecha_caducidad_invitaciones)) {
+      return { success: false, error: 'El evento ha finalizado' };
+    }
+    if (estaRsvpCerrado(evento.fecha_limite_rsvp)) {
+      return { success: false, error: 'El plazo para confirmar asistencia ha expirado' };
+    }
+
+    const finalAcomp = estado === 'rechazado' ? 0 : Math.min(Math.max(0, acompanantes), 4);
+    const nuevo: Invitado = {
+      id: 'i-gen-' + Date.now(),
+      evento_id: evento.id,
+      nombre: nombreOpcional?.trim() || 'Invitado(a) General',
+      token_hash: 'hash-' + Date.now(),
+      estado_rsvp: estado,
+      numero_acompanantes: finalAcomp,
+      max_acompanantes_permitidos: 4,
+      respondido_at: new Date().toISOString(),
+      activo: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+    mockStore.invitados.push(nuevo);
+    guardarMockStore();
+
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        window.localStorage.setItem('rsvp_completado_' + tokenHash, JSON.stringify({
+          nombre: nuevo.nombre,
+          estado: nuevo.estado_rsvp,
+          acompanantes: finalAcomp,
+          respondido_at: nuevo.respondido_at
+        }));
+      } catch {}
+    }
+
+    return { success: true, estado_rsvp: estado, numero_acompanantes: finalAcomp, respondido_at: nuevo.respondido_at };
+  }
+
+  // Caso: Invitado Individual
+  const esDemo = tokenHash.includes('demoinvitado') || tokenHash === 'mocktokeninvitado123456hash';
+  const invitado = mockStore.invitados.find(i => 
+    i.activo && (
+      i.token_hash === tokenHash || 
+      i.token_plano === tokenHash ||
+      (esDemo && i.token_plano === 'demoinvitado123456')
+    )
+  );
   if (!invitado) return { success: false, error: 'Invitación no válida' };
+
+  // Evitar duplicados: Si ya respondió, mantener su respuesta definitiva
+  if (invitado.respondido_at) {
+    return { 
+      success: true, 
+      estado_rsvp: invitado.estado_rsvp, 
+      numero_acompanantes: invitado.numero_acompanantes, 
+      respondido_at: invitado.respondido_at,
+      ya_respondio: true 
+    };
+  }
 
   const evento = mockStore.eventos.find(e => e.id === invitado.evento_id);
   if (!evento || estaInvitacionCaducada(evento.fecha_caducidad_invitaciones)) {
@@ -203,7 +418,7 @@ export function mockRegistrarRsvp(tokenHash: string, estado: 'confirmado' | 'rec
     return { success: false, error: 'El plazo para confirmar asistencia ha expirado' };
   }
 
-  const finalAcomp = estado === 'rechazado' ? 0 : Math.min(Math.max(0, acompanantes), invitado.max_acompanantes_permitidos);
+  const finalAcomp = estado === 'rechazado' ? 0 : Math.min(Math.max(0, acompanantes), 4);
   
   mockStore.historial_rsvp.push({
     id: 'h-' + Date.now(),
@@ -218,12 +433,19 @@ export function mockRegistrarRsvp(tokenHash: string, estado: 'confirmado' | 'rec
   invitado.numero_acompanantes = finalAcomp;
   invitado.respondido_at = new Date().toISOString();
   invitado.updated_at = new Date().toISOString();
+  guardarMockStore();
 
   return { success: true, estado_rsvp: estado, numero_acompanantes: finalAcomp, respondido_at: invitado.respondido_at };
 }
 
 export function mockObtenerPanelOrganizador(tokenHash: string): PanelOrganizadorData {
-  const acceso = mockStore.accesos_cliente.find(a => a.token_hash === tokenHash);
+  sincronizarMockStore();
+  const esDemo = tokenHash.includes('demoorganizador') || tokenHash === 'mocktokenorganizador123hash';
+  const acceso = mockStore.accesos_cliente.find(a => 
+    a.token_hash === tokenHash || 
+    a.token_plano === tokenHash ||
+    (esDemo && a.token_plano === 'demoorganizador123')
+  );
   if (!acceso) {
     return { valido: false, error: 'Enlace privado no encontrado' };
   }

@@ -10,6 +10,9 @@ import type {
 } from '../types/database';
 import { 
   mockStore, 
+  guardarMockStore,
+  sincronizarMockStore,
+  sincronizarMockStoreServidor,
   mockObtenerInvitacion, 
   mockRegistrarRsvp, 
   mockObtenerPanelOrganizador, 
@@ -50,13 +53,15 @@ export async function obtenerInvitacionPorHash(tokenHash: string): Promise<Invit
     }
     return data as InvitacionPublicaData;
   }
+  await sincronizarMockStoreServidor();
   return mockObtenerInvitacion(tokenHash);
 }
 
 export async function registrarRsvpPorHash(
   tokenHash: string, 
   estado: 'confirmado' | 'rechazado', 
-  acompanantes: number
+  acompanantes: number,
+  nombreOpcional?: string
 ) {
   if (isConfigured && supabase) {
     const { data, error } = await supabase.rpc('registrar_respuesta_rsvp', {
@@ -69,7 +74,8 @@ export async function registrarRsvpPorHash(
     }
     return data;
   }
-  return mockRegistrarRsvp(tokenHash, estado, acompanantes);
+  await sincronizarMockStoreServidor();
+  return mockRegistrarRsvp(tokenHash, estado, acompanantes, nombreOpcional);
 }
 
 export async function obtenerPanelOrganizadorPorHash(tokenHash: string): Promise<PanelOrganizadorData> {
@@ -82,6 +88,7 @@ export async function obtenerPanelOrganizadorPorHash(tokenHash: string): Promise
     }
     return data as PanelOrganizadorData;
   }
+  await sincronizarMockStoreServidor();
   return mockObtenerPanelOrganizador(tokenHash);
 }
 
@@ -107,6 +114,7 @@ export async function adminListarClientes(): Promise<Cliente[]> {
     if (error) throw error;
     return data || [];
   }
+  sincronizarMockStore();
   return [...mockStore.clientes];
 }
 
@@ -120,12 +128,14 @@ export async function adminCrearCliente(nuevo: Omit<Cliente, 'id' | 'created_at'
     if (error) throw error;
     return data;
   }
+  sincronizarMockStore();
   const creado: Cliente = {
     ...nuevo,
     id: 'c-' + Date.now(),
     created_at: new Date().toISOString()
   };
   mockStore.clientes.push(creado);
+  guardarMockStore();
   return creado;
 }
 
@@ -138,6 +148,7 @@ export async function adminListarEventos(): Promise<Evento[]> {
     if (error) throw error;
     return data || [];
   }
+  sincronizarMockStore();
   return mockStore.eventos.map(e => ({
     ...e,
     cliente: mockStore.clientes.find(c => c.id === e.cliente_id)
@@ -154,6 +165,7 @@ export async function adminObtenerEvento(id: string): Promise<Evento | null> {
     if (error) throw error;
     return data;
   }
+  sincronizarMockStore();
   const encontrado = mockStore.eventos.find(e => e.id === id);
   if (!encontrado) return null;
   return {
@@ -185,11 +197,13 @@ export async function adminGuardarEvento(evento: Partial<Evento> & { cliente_id:
   }
 
   // Mock implementation
+  sincronizarMockStore();
   if (evento.id) {
     const index = mockStore.eventos.findIndex(e => e.id === evento.id);
     if (index === -1) throw new Error('Evento no encontrado');
     const actualizado = { ...mockStore.eventos[index], ...evento, updated_at: new Date().toISOString() };
     mockStore.eventos[index] = actualizado as Evento;
+    guardarMockStore();
     return actualizado as Evento;
   } else {
     const nuevoEvento: Evento = {
@@ -204,9 +218,10 @@ export async function adminGuardarEvento(evento: Partial<Evento> & { cliente_id:
       ubicacion_url: evento.ubicacion_url || '',
       indicaciones: evento.indicaciones || '',
       configuracion_diseno: evento.configuracion_diseno || {
-        tema: 'clasico_elegante',
-        color_primario: '#b45309',
-        color_secundario: '#fef3c7',
+        tema: 'dorado_luxury',
+        estilo_tarjeta: 'clasica_curva',
+        color_primario: '#d97706',
+        color_secundario: '#0c0a09',
       },
       estado: evento.estado || 'borrador',
       fecha_caducidad_invitaciones: new Date(new Date(evento.fecha_evento).getTime() + 7 * 86400000).toISOString(),
@@ -218,6 +233,7 @@ export async function adminGuardarEvento(evento: Partial<Evento> & { cliente_id:
       updated_at: new Date().toISOString(),
     };
     mockStore.eventos.push(nuevoEvento);
+    guardarMockStore();
     return nuevoEvento;
   }
 }
@@ -233,6 +249,7 @@ export async function adminListarInvitados(eventoId: string): Promise<Invitado[]
     if (error) throw error;
     return data || [];
   }
+  sincronizarMockStore();
   return mockStore.invitados.filter(i => i.evento_id === eventoId && i.activo);
 }
 
@@ -243,6 +260,7 @@ export async function adminGuardarInvitado(invitado: {
   telefono?: string | null;
   token_hash: string;
   max_acompanantes_permitidos?: number;
+  token_plano?: string;
 }): Promise<Invitado> {
   if (isConfigured && supabase) {
     if (invitado.id) {
@@ -272,10 +290,12 @@ export async function adminGuardarInvitado(invitado: {
   }
 
   // Mock
+  sincronizarMockStore();
   if (invitado.id) {
     const idx = mockStore.invitados.findIndex(i => i.id === invitado.id);
     const updated = { ...mockStore.invitados[idx], ...invitado, updated_at: new Date().toISOString() };
     mockStore.invitados[idx] = updated as Invitado;
+    guardarMockStore();
     return updated as Invitado;
   } else {
     const nuevo: Invitado = {
@@ -290,9 +310,11 @@ export async function adminGuardarInvitado(invitado: {
       respondido_at: null,
       activo: true,
       created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
+      token_plano: invitado.token_plano
     };
     mockStore.invitados.push(nuevo);
+    guardarMockStore();
     return nuevo;
   }
 }
@@ -306,8 +328,10 @@ export async function adminEliminarInvitado(id: string): Promise<void> {
     if (error) throw error;
     return;
   }
+  sincronizarMockStore();
   const found = mockStore.invitados.find(i => i.id === id);
   if (found) found.activo = false;
+  guardarMockStore();
 }
 
 export async function adminObtenerAccesoOrganizador(eventoId: string): Promise<AccesoCliente | null> {
@@ -323,10 +347,11 @@ export async function adminObtenerAccesoOrganizador(eventoId: string): Promise<A
     if (error) throw error;
     return data;
   }
+  sincronizarMockStore();
   return mockStore.accesos_cliente.find(a => a.evento_id === eventoId && !a.revocado_at) || null;
 }
 
-export async function adminCrearAccesoOrganizador(eventoId: string, tokenHash: string, expiraAt: string): Promise<AccesoCliente> {
+export async function adminCrearAccesoOrganizador(eventoId: string, tokenHash: string, expiraAt: string, tokenPlano?: string): Promise<AccesoCliente> {
   if (isConfigured && supabase) {
     // Revocar previos
     await supabase
@@ -349,6 +374,7 @@ export async function adminCrearAccesoOrganizador(eventoId: string, tokenHash: s
   }
 
   // Mock: revocar previos
+  sincronizarMockStore();
   mockStore.accesos_cliente.forEach(a => {
     if (a.evento_id === eventoId && !a.revocado_at) {
       a.revocado_at = new Date().toISOString();
@@ -363,9 +389,11 @@ export async function adminCrearAccesoOrganizador(eventoId: string, tokenHash: s
     expira_at: expiraAt,
     revocado_at: null,
     ultimo_acceso_at: null,
-    created_at: new Date().toISOString()
+    created_at: new Date().toISOString(),
+    token_plano: tokenPlano || tokenHash
   };
   mockStore.accesos_cliente.push(nuevo);
+  guardarMockStore();
   return nuevo;
 }
 
@@ -378,8 +406,10 @@ export async function adminRevocarAccesoOrganizador(accesoId: string): Promise<v
     if (error) throw error;
     return;
   }
+  sincronizarMockStore();
   const found = mockStore.accesos_cliente.find(a => a.id === accesoId);
   if (found) found.revocado_at = new Date().toISOString();
+  guardarMockStore();
 }
 
 export async function adminListarLogsMantenimiento(): Promise<LogMantenimiento[]> {

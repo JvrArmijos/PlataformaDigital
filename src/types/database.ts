@@ -5,23 +5,60 @@ export type EstadoRSVP = 'pendiente' | 'confirmado' | 'rechazado';
 export type CanalEntrega = 'enlace' | 'WhatsApp';
 export type EstadoEntrega = 'preparado' | 'enviado_manual' | 'error_registrado';
 
+export type EstiloTarjeta = 
+  | 'gala_royal'           // 1. Cúpula imperial & marco dorado de gala
+  | 'editorial_vogue'      // 2. Revista de moda & tipografía asimétrica
+  | 'pasaporte_ticket'     // 3. Pase de abordaje VIP & código de barras
+  | 'sobre_clasico'        // 4. Carta romántica & sello de lacre en relieve
+  | 'cyber_neon'           // 5. Fiesta neón glow & diseño dark tech
+  | 'botanico_jardin'      // 6. Jardín botánico & corona de eucalipto
+  | 'minimalista_polaroid' // 7. Foto polaroid & washi tape retro
+  | 'joya_artdeco'         // 8. Gran Gatsby & geometría dorada 1920
+  | 'cristal_glass'        // 9. Vidrio esmerilado & glassmorphism flotante
+  | 'celestial_mistico';   // 10. Bóveda celeste, estrellas & luna dorada
+
+export type EfectoTransicion = 
+  | 'sobre_gala' 
+  | 'hoja_libro' 
+  | 'destello_magico' 
+  | 'cortina_suave'
+  | 'zoom_cinematico'
+  | 'persiana_veneciana'
+  | 'giro_3d_moneda'
+  | 'deslizamiento_lateral'
+  | 'burbuja_emergente'
+  | 'caida_petalos';
+
 export interface DisenoConfig {
-  tema: 'clasico_elegante' | 'romantico_floral' | 'moderno_minimal' | 'dorado_luxury' | 'nocturno_estelar';
+  tema: 
+    | 'dorado_luxury' 
+    | 'romantico_floral' 
+    | 'esmeralda_botanico' 
+    | 'zafiro_real' 
+    | 'lavanda_elegance' 
+    | 'blanco_minimal'
+    | 'quince_princesa'
+    | 'neon_night'
+    | 'celestial_angel';
+  estilo_tarjeta?: EstiloTarjeta;
   color_primario: string;
   color_secundario: string;
   color_acento?: string;
+  efecto_transicion?: EfectoTransicion;
   fuente_titulo?: 'serif' | 'script' | 'cinzel';
   codigo_vestimenta?: string;
   permitir_ninos?: boolean;
   musica_url?: string;
   mensaje_bienvenida?: string;
   mensaje_cierre?: string;
+  mensaje_regalo?: string;
   itinerario?: Array<{ hora: string; actividad: string; icono?: string }>;
   cuenta_bancaria_regalo?: {
     banco: string;
     titular: string;
     numero: string;
     tipo: string;
+    cedula?: string;
   };
 }
 
@@ -134,6 +171,7 @@ export interface InvitacionPublicaData {
   valido: boolean;
   caducado?: boolean;
   rsvp_cerrado?: boolean;
+  es_general?: boolean;
   error?: string;
   mensaje?: string;
   invitado?: {
