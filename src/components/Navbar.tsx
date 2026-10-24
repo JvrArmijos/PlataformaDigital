@@ -5,7 +5,12 @@ import { supabase, isConfigured } from '../lib/supabase';
 export function Navbar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const isAdminPath = location.pathname.startsWith('/admin') && location.pathname !== '/admin/login';
+
+
+  if (location.pathname.startsWith('/i/') || location.pathname.startsWith('/asistencia/')) {
+    return null;
+  }
+   const isAdminPath = location.pathname.startsWith('/admin') && location.pathname !== '/admin/login';
 
   const handleLogout = async () => {
     if (supabase) {
